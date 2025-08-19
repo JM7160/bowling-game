@@ -71,6 +71,7 @@ class GameScene extends Phaser.Scene {
     this.midReached = false;
     this.inBackground1 = false;
     this.pins = this.physics.add.group();
+    this.scoreText = null; // 핀 개수 표시용
 
     // 마우스 휠로 공 발사
     window.addEventListener('wheel', () => {
@@ -84,7 +85,7 @@ class GameScene extends Phaser.Scene {
         this.ball.body.setVelocity(0, -300);
         this.ball.setDepth(1);
 
-        // ✅ 배경에서는 공이 위로 올라가면서 중앙으로 이동하는 보정 추가
+        // 배경에서는 공이 중앙 위쪽으로 이동
         this.ball.targetX = this.sys.game.config.width / 2;
       });
       this.time.delayedCall(500, () => {
@@ -93,30 +94,26 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-    update() {
-        if (this.ball && !this.inBackground1) {
-        // 목적지 좌표 설정
-        const targetX = this.sys.game.config.width / 2;
-        const targetY = this.sys.game.config.height / 2 - 100; // 화면 가운데보다 위쪽
+  update() {
+    // 배경에서 공 이동
+    if (this.ball && !this.inBackground1) {
+      const targetX = this.sys.game.config.width / 2;
+      const targetY = this.sys.game.config.height / 2 - 100; // 중앙보다 위쪽
 
-        // X, Y축으로 부드럽게 이동
-        const lerpSpeed = 0.05; // 속도 조절 가능
-        this.ball.x += (targetX - this.ball.x) * lerpSpeed;
-        this.ball.y += (targetY - this.ball.y) * lerpSpeed;
+      const lerpSpeed = 0.05;
+      this.ball.x += (targetX - this.ball.x) * lerpSpeed;
+      this.ball.y += (targetY - this.ball.y) * lerpSpeed;
 
-        // 목적지 도달하면 midReached 처리
-        if (!this.midReached && Math.abs(this.ball.y - targetY) < 5) {
-          this.midReached = true;
+      if (!this.midReached && Math.abs(this.ball.y - targetY) < 5) {
+        this.midReached = true;
+        this.ball.destroy();
+        this.ball = null;
 
-          this.ball.destroy();
-          this.ball = null;
-
-          // 배경1 전환 및 핀 생성 코드 그대로
-          this.bg.destroy();
-          this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background1');
-          this.bg.setOrigin(0.5, 0.5);
-          this.resizeBackground(this.bg);
-          this.inBackground1 = true;
+        this.bg.destroy();
+        this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background1');
+        this.bg.setOrigin(0.5, 0.5);
+        this.resizeBackground(this.bg);
+        this.inBackground1 = true;
 
         // 핀 생성
         const startX = this.sys.game.config.width / 2 - 200;
@@ -129,9 +126,11 @@ class GameScene extends Phaser.Scene {
           pin.body.setImmovable(true);
           pin.body.allowGravity = false;
           pin.fallen = false;
+          pin.checkedDomino = false;
           this.pins.add(pin);
         }
 
+        // 공 생성 및 핀 충돌 처리
         this.time.delayedCall(500, () => {
           this.ball = this.add.circle(this.swing.x, this.sys.game.config.height - 50, 40, 0xff0000);
           this.physics.add.existing(this.ball);
@@ -143,28 +142,28 @@ class GameScene extends Phaser.Scene {
             if (pin.fallen) return;
 
             const targetAngle = (ball.x < pin.x ? -90 : 90);
-
             this.tweens.add({
               targets: pin,
               angle: targetAngle,
               duration: 500,
               ease: 'Cubic.easeOut',
               onComplete: () => {
-                pin.body.enable = false; // ✅ 쓰러진 후 고정
+                pin.body.enable = false;
+                this.updateFallenCount();
               }
             });
 
             pin.fallen = true;
-
             this.ball.destroy();
             this.ball = null;
           });
 
+          // 핀끼리 도미노
           this.physics.add.collider(this.pins, this.pins, (pinA, pinB) => {
             if (!pinB.fallen && pinA.fallen && !pinB.checkedDomino) {
-              pinB.checkedDomino = true; // ✅ 이미 확률 판정한 핀은 다시 안 하도록 표시
+              pinB.checkedDomino = true;
 
-              if (Math.random() < 0.3) { // 50% 확률
+              if (Math.random() < 0.3) {
                 const direction = (pinA.x < pinB.x ? -90 : 90);
                 this.tweens.add({
                   targets: pinB,
@@ -172,24 +171,33 @@ class GameScene extends Phaser.Scene {
                   duration: 500,
                   ease: 'Cubic.easeOut',
                   onComplete: () => {
-                    pinB.body.enable = false; // ✅ 쓰러진 후 고정
+                    pinB.body.enable = false;
+                    this.updateFallenCount();
                   }
                 });
                 pinB.fallen = true;
               }
             }
           });
-
         });
       }
     }
 
+    // 배경1에서 공이 화면 위쪽으로 이동
     if (this.inBackground1 && this.ball) {
       if (this.ball.y <= this.sys.game.config.height / 2 - 200) {
         this.ball.destroy();
         this.ball = null;
       }
     }
+  }
+
+  // 넘어간 핀 개수 계산 및 화면 표시
+  updateFallenCount() {
+    const count = this.pins.getChildren().filter(pin => pin.fallen).length;
+
+    if (this.scoreText) this.scoreText.destroy();
+    this.scoreText = this.add.text(50, 50, `점수: ${count}`, { fontSize: '32px', color: '#ffffff' });
   }
 
   resizeBackground(bg) {
