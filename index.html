@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>Phaser Swing Game</title>
+  <title>BaseBowlingolf game</title>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.js"></script>
   <style>
     body { margin:0; padding:0; overflow:hidden; }
@@ -23,11 +23,12 @@ class StartScene extends Phaser.Scene {
     this.load.image('start_swing', 'image/start_swing.png'); 
     this.load.image('swing', 'image/swing.png');             
     this.load.image('finish_swing', 'image/finish_swing.png'); 
+    this.load.image('pin', 'image/pin.png');
   }
 
   create() {
     const bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'start');
-    bg.setOrigin(0.5,0.5);
+    bg.setOrigin(0.5, 0.5);
     this.resizeBackground(bg);
 
     const btnY = this.sys.game.config.height - 200;
@@ -51,81 +52,129 @@ class GameScene extends Phaser.Scene {
   constructor() { super({ key: 'GameScene' }); }
 
   create() {
-    // 원래 배경
+    this.physics.world.setBoundsCollision(true, true, true, true);
+
     this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background');
-    this.bg.setOrigin(0.5,0.5);
+    this.bg.setOrigin(0.5, 0.5);
     this.resizeBackground(this.bg);
 
     const swingY = this.sys.game.config.height - 250;
     this.swing = this.add.image(this.sys.game.config.width/2, swingY, 'start_swing').setScale(3);
 
     this.input.on('pointermove', pointer => {
-      this.swing.x = pointer.x;
+      const minX = 900;
+      const maxX = this.sys.game.config.width - 900;
+      this.swing.x = Phaser.Math.Clamp(pointer.x, minX, maxX);
     });
 
-    this.ball = null; 
-    this.ballSpeedX = 0;  
-    this.ballSpeedY = -10; 
-    this.ballShrinkRate = 0.005; 
+    this.ball = null;
     this.midReached = false;
     this.inBackground1 = false;
+    this.pins = this.physics.add.group();
 
-    // 마우스 휠 이벤트
+    // 마우스 휠로 공 발사
     window.addEventListener('wheel', () => {
-      if (this.ball || this.inBackground1) return; 
+      if (this.ball || this.inBackground1) return;
 
-      // 원래 배경에서 공 발사
       this.swing.setTexture('swing');
       this.time.delayedCall(200, () => {
         this.swing.setTexture('finish_swing');
         this.ball = this.add.circle(this.swing.x, swingY + 20, 40, 0xff0000);
-        this.ball.setScale(1);
+        this.physics.add.existing(this.ball);
+        this.ball.body.setVelocity(0, -300);
         this.ball.setDepth(1);
-        this.ballSpeedX = 0; 
-        this.ballSpeedY = -10; 
       });
-      this.time.delayedCall(500, () => { this.swing.setTexture('start_swing'); });
+      this.time.delayedCall(500, () => {
+        this.swing.setTexture('start_swing');
+      });
     });
   }
 
   update() {
-    if (this.ball) {
-      // 공 이동
-      this.ball.x += this.ballSpeedX;
-      this.ball.y += this.ballSpeedY;
-
-      // 공 크기 점점 줄이기
-      this.ball.setScale(this.ball.scale - this.ballShrinkRate);
-
-      // 원래 배경에서 화면 중간 도달 시
-      if (!this.midReached && !this.inBackground1 && this.ball.y <= this.sys.game.config.height / 2) {
+    if (this.ball && !this.inBackground1) {
+      if (!this.midReached && this.ball.y <= this.sys.game.config.height / 2) {
         this.midReached = true;
 
-        // 공 삭제
         this.ball.destroy();
         this.ball = null;
 
-        // background1로 전환
         this.bg.destroy();
         this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background1');
-        this.bg.setOrigin(0.5,0.5);
+        this.bg.setOrigin(0.5, 0.5);
         this.resizeBackground(this.bg);
         this.inBackground1 = true;
 
-        // background1에서 자동 공 발사
+        // 핀 생성
+        const startX = this.sys.game.config.width / 2 - 200;
+        const startY = 600;
+        for (let i = 0; i < 5; i++) {
+          const pin = this.physics.add.image(startX + i * 100, startY, 'pin');
+          pin.setScale(0.5);
+          pin.setOrigin(0.5, 1);
+          pin.body.setAllowRotation(true);
+          pin.body.setImmovable(true);
+          pin.body.allowGravity = false;
+          pin.fallen = false;
+          this.pins.add(pin);
+        }
+
         this.time.delayedCall(500, () => {
-          this.ball = this.add.circle(this.sys.game.config.width/2, this.sys.game.config.height - 50, 40, 0xff0000);
-          this.ball.setScale(1);
+          this.ball = this.add.circle(this.swing.x, this.sys.game.config.height - 50, 40, 0xff0000);
+          this.physics.add.existing(this.ball);
+          this.ball.body.setVelocity(0, -300);
           this.ball.setDepth(1);
-          this.ballSpeedX = 0; 
-          this.ballSpeedY = -10; 
+
+          // 공과 핀 충돌
+          this.physics.add.collider(this.ball, this.pins, (ball, pin) => {
+            if (pin.fallen) return;
+
+            const targetAngle = (ball.x < pin.x ? -90 : 90);
+
+            this.tweens.add({
+              targets: pin,
+              angle: targetAngle,
+              duration: 500,
+              ease: 'Cubic.easeOut',
+              onComplete: () => {
+                pin.body.enable = false; // ✅ 쓰러진 후 고정
+              }
+            });
+
+            pin.fallen = true;
+
+            this.ball.destroy();
+            this.ball = null;
+          });
+
+          this.physics.add.collider(this.pins, this.pins, (pinA, pinB) => {
+            if (!pinB.fallen && pinA.fallen && !pinB.checkedDomino) {
+              pinB.checkedDomino = true; // ✅ 이미 확률 판정한 핀은 다시 안 하도록 표시
+
+              if (Math.random() < 0.3) { // 50% 확률
+                const direction = (pinA.x < pinB.x ? -90 : 90);
+                this.tweens.add({
+                  targets: pinB,
+                  angle: direction,
+                  duration: 500,
+                  ease: 'Cubic.easeOut',
+                  onComplete: () => {
+                    pinB.body.enable = false; // ✅ 쓰러진 후 고정
+                  }
+                });
+                pinB.fallen = true;
+              }
+            }
+          });
+
         });
       }
     }
 
-    if (this.inBackground1 && this.ball && this.ball.y <= this.sys.game.config.height / 2 - 200) {
-      this.ball.destroy();
-      this.ball = null;
+    if (this.inBackground1 && this.ball) {
+      if (this.ball.y <= this.sys.game.config.height / 2 - 200) {
+        this.ball.destroy();
+        this.ball = null;
+      }
     }
   }
 
@@ -140,6 +189,10 @@ const config = {
   type: Phaser.AUTO,
   width: window.innerWidth,
   height: window.innerHeight,
+  physics: {
+    default: 'arcade',
+    arcade: { debug: false }
+  },
   scene: [StartScene, GameScene]
 };
 
