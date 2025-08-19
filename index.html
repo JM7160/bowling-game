@@ -83,6 +83,9 @@ class GameScene extends Phaser.Scene {
         this.physics.add.existing(this.ball);
         this.ball.body.setVelocity(0, -300);
         this.ball.setDepth(1);
+
+        // ✅ 배경에서는 공이 위로 올라가면서 중앙으로 이동하는 보정 추가
+        this.ball.targetX = this.sys.game.config.width / 2;
       });
       this.time.delayedCall(500, () => {
         this.swing.setTexture('start_swing');
@@ -90,19 +93,30 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  update() {
-    if (this.ball && !this.inBackground1) {
-      if (!this.midReached && this.ball.y <= this.sys.game.config.height / 2) {
-        this.midReached = true;
+    update() {
+        if (this.ball && !this.inBackground1) {
+        // 목적지 좌표 설정
+        const targetX = this.sys.game.config.width / 2;
+        const targetY = this.sys.game.config.height / 2 - 100; // 화면 가운데보다 위쪽
 
-        this.ball.destroy();
-        this.ball = null;
+        // X, Y축으로 부드럽게 이동
+        const lerpSpeed = 0.05; // 속도 조절 가능
+        this.ball.x += (targetX - this.ball.x) * lerpSpeed;
+        this.ball.y += (targetY - this.ball.y) * lerpSpeed;
 
-        this.bg.destroy();
-        this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background1');
-        this.bg.setOrigin(0.5, 0.5);
-        this.resizeBackground(this.bg);
-        this.inBackground1 = true;
+        // 목적지 도달하면 midReached 처리
+        if (!this.midReached && Math.abs(this.ball.y - targetY) < 5) {
+          this.midReached = true;
+
+          this.ball.destroy();
+          this.ball = null;
+
+          // 배경1 전환 및 핀 생성 코드 그대로
+          this.bg.destroy();
+          this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background1');
+          this.bg.setOrigin(0.5, 0.5);
+          this.resizeBackground(this.bg);
+          this.inBackground1 = true;
 
         // 핀 생성
         const startX = this.sys.game.config.width / 2 - 200;
