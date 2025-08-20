@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>BaseBowlingolf game</title>
+  <title>BaseBowlingolf Game</title>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.js"></script>
   <style>
     body { margin:0; padding:0; overflow:hidden; }
@@ -54,6 +54,7 @@ class GameScene extends Phaser.Scene {
   create() {
     this.physics.world.setBoundsCollision(true, true, true, true);
 
+    // 초기 배경 (스윙 화면)
     this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background');
     this.bg.setOrigin(0.5, 0.5);
     this.resizeBackground(this.bg);
@@ -67,16 +68,32 @@ class GameScene extends Phaser.Scene {
       this.swing.x = Phaser.Math.Clamp(pointer.x, minX, maxX);
     });
 
+    // 클릭으로 다시 스윙 화면으로 전환
+    this.input.on('pointerdown', () => {
+      if (this.readyNextThrow) {
+        this.showSwingScreen();
+      }
+    });
+
     this.ball = null;
     this.midReached = false;
     this.inBackground1 = false;
+    this.canShoot = true;
+
     this.pins = this.physics.add.group();
-    this.scoreText = null; // 핀 개수 표시용
+    this.score = 0;
+    this.frameCount = 1;   // 1~9세트
+    this.throwCount = 1;   // 각 세트에서 1구, 2구
+    this.readyNextThrow = false;
 
-    // 마우스 휠로 공 발사
+    // 점수 텍스트
+    this.scoreText = this.add.text(50, 50, `점수: ${this.score}`, { fontSize: '32px', color: '#ffffff' });
+
+    // 공 발사: 마우스 휠
     window.addEventListener('wheel', () => {
-      if (this.ball || this.inBackground1) return;
+      if (!this.canShoot) return;
 
+      this.canShoot = false;
       this.swing.setTexture('swing');
       this.time.delayedCall(200, () => {
         this.swing.setTexture('finish_swing');
@@ -84,22 +101,16 @@ class GameScene extends Phaser.Scene {
         this.physics.add.existing(this.ball);
         this.ball.body.setVelocity(0, -300);
         this.ball.setDepth(1);
-
-        // 배경에서는 공이 중앙 위쪽으로 이동
-        this.ball.targetX = this.sys.game.config.width / 2;
       });
-      this.time.delayedCall(500, () => {
-        this.swing.setTexture('start_swing');
-      });
+      this.time.delayedCall(500, () => { this.swing.setTexture('start_swing'); });
     });
   }
 
   update() {
-    // 배경에서 공 이동
+    // 스윙화면 → 배경1로 전환
     if (this.ball && !this.inBackground1) {
       const targetX = this.sys.game.config.width / 2;
-      const targetY = this.sys.game.config.height / 2 - 100; // 중앙보다 위쪽
-
+      const targetY = this.sys.game.config.height / 2 - 100;
       const lerpSpeed = 0.05;
       this.ball.x += (targetX - this.ball.x) * lerpSpeed;
       this.ball.y += (targetY - this.ball.y) * lerpSpeed;
@@ -108,82 +119,11 @@ class GameScene extends Phaser.Scene {
         this.midReached = true;
         this.ball.destroy();
         this.ball = null;
-
-        this.bg.destroy();
-        this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background1');
-        this.bg.setOrigin(0.5, 0.5);
-        this.resizeBackground(this.bg);
-        this.inBackground1 = true;
-
-        // 핀 생성
-        const startX = this.sys.game.config.width / 2 - 200;
-        const startY = 600;
-        for (let i = 0; i < 5; i++) {
-          const pin = this.physics.add.image(startX + i * 100, startY, 'pin');
-          pin.setScale(0.5);
-          pin.setOrigin(0.5, 1);
-          pin.body.setAllowRotation(true);
-          pin.body.setImmovable(true);
-          pin.body.allowGravity = false;
-          pin.fallen = false;
-          pin.checkedDomino = false;
-          this.pins.add(pin);
-        }
-
-        // 공 생성 및 핀 충돌 처리
-        this.time.delayedCall(500, () => {
-          this.ball = this.add.circle(this.swing.x, this.sys.game.config.height - 50, 40, 0xff0000);
-          this.physics.add.existing(this.ball);
-          this.ball.body.setVelocity(0, -300);
-          this.ball.setDepth(1);
-
-          // 공과 핀 충돌
-          this.physics.add.collider(this.ball, this.pins, (ball, pin) => {
-            if (pin.fallen) return;
-
-            const targetAngle = (ball.x < pin.x ? -90 : 90);
-            this.tweens.add({
-              targets: pin,
-              angle: targetAngle,
-              duration: 500,
-              ease: 'Cubic.easeOut',
-              onComplete: () => {
-                pin.body.enable = false;
-                this.updateFallenCount();
-              }
-            });
-
-            pin.fallen = true;
-            this.ball.destroy();
-            this.ball = null;
-          });
-
-          // 핀끼리 도미노
-          this.physics.add.collider(this.pins, this.pins, (pinA, pinB) => {
-            if (!pinB.fallen && pinA.fallen && !pinB.checkedDomino) {
-              pinB.checkedDomino = true;
-
-              if (Math.random() < 0.3) {
-                const direction = (pinA.x < pinB.x ? -90 : 90);
-                this.tweens.add({
-                  targets: pinB,
-                  angle: direction,
-                  duration: 500,
-                  ease: 'Cubic.easeOut',
-                  onComplete: () => {
-                    pinB.body.enable = false;
-                    this.updateFallenCount();
-                  }
-                });
-                pinB.fallen = true;
-              }
-            }
-          });
-        });
+        this.showBackground1();
       }
     }
 
-    // 배경1에서 공이 화면 위쪽으로 이동
+    // 배경1에서 공이 위쪽으로 나가면 소멸
     if (this.inBackground1 && this.ball) {
       if (this.ball.y <= this.sys.game.config.height / 2 - 200) {
         this.ball.destroy();
@@ -192,13 +132,135 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  // 넘어간 핀 개수 계산 및 화면 표시
-  updateFallenCount() {
-    const count = this.pins.getChildren().filter(pin => pin.fallen).length;
-
-    if (this.scoreText) this.scoreText.destroy();
-    this.scoreText = this.add.text(50, 50, `점수: ${count}`, { fontSize: '32px', color: '#ffffff' });
+  // 핀 생성 (배경1 전용)
+  createPins() {
+    const startX = this.sys.game.config.width / 2 - 200;
+    const startY = 600;
+    for (let i = 0; i < 5; i++) {
+      const pin = this.physics.add.image(startX + i * 100, startY, 'pin');
+      pin.setScale(0.5);
+      pin.setOrigin(0.5, 1);
+      pin.body.setAllowRotation(true);
+      pin.body.setImmovable(true);
+      pin.body.allowGravity = false;
+      pin.fallen = false;
+      pin.checkedDomino = false;
+      this.pins.add(pin);
+    }
   }
+
+  // 배경1 표시 + 핀 생성
+    showBackground1() {
+      if (this.bg) this.bg.destroy();
+      this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background1');
+      this.bg.setOrigin(0.5, 0.5);
+      this.resizeBackground(this.bg);
+      this.inBackground1 = true;
+
+      // 새 프레임 시작일 경우에만 핀 리셋
+      if (this.throwCount === 1) {
+        this.pins.clear(true, true);
+        this.createPins();
+      }
+
+      this.pins.getChildren().forEach(pin => {
+        if (pin.fallen) {
+          pin.setVisible(false);   // 이미 쓰러진 핀은 계속 숨김
+        } else {
+          pin.setVisible(true);    // 안 쓰러진 핀은 다시 보이게
+          pin.body.enable = true;  // 충돌 가능하게 다시 켜줌
+        }
+      });
+
+
+      // 공 생성
+      this.ball = this.add.circle(this.swing.x, this.sys.game.config.height - 50, 40, 0xff0000);
+      this.physics.add.existing(this.ball);
+      this.ball.body.setVelocity(0, -300);
+  this.ball.setDepth(1);
+
+    // 공과 핀 충돌 처리
+      this.physics.add.collider(this.ball, this.pins, (ball, pin) => {
+        if (pin.fallen) return;
+        const targetAngle = (ball.x < pin.x ? -90 : 90);
+        this.tweens.add({
+          targets: pin,
+          angle: targetAngle,
+          duration: 500,
+          ease: 'Cubic.easeOut',
+          onComplete: () => {
+            pin.fallen = true;  
+            pin.setVisible(false);   // 쓰러진 핀은 화면에서 숨김
+            this.updateScore();
+          }
+        });
+        this.ball.destroy();
+        this.ball = null;
+      });
+
+
+    // 핀과 핀 도미노 효과
+    this.physics.add.collider(this.pins, this.pins, (pinA, pinB) => {
+      if (!pinB.fallen && pinA.fallen && !pinB.checkedDomino) {
+        pinB.checkedDomino = true;
+        if (Math.random() < 0.3) {
+          const direction = (pinA.x < pinB.x ? -90 : 90);
+          this.tweens.add({
+            targets: pinB,
+            angle: direction,
+            duration: 500,
+            ease: 'Cubic.easeOut',
+            onComplete: () => {
+              pinB.body.enable = false;
+              pinB.fallen = true;
+              this.updateScore();
+            }
+          });
+        }
+      }
+    });
+  }
+
+  // 점수 업데이트
+  updateScore() {
+    const fallenCount = this.pins.getChildren().filter(pin => pin.fallen).length;
+    this.score = fallenCount + (this.frameCount - 1) * 5; // 단순 누적
+    this.scoreText.setText(`점수: ${this.score}`);
+    this.readyNextThrow = true;
+  }
+
+  // 다시 스윙 화면
+    showSwingScreen() {
+    if (this.bg) this.bg.destroy();
+    this.bg = this.add.image(this.sys.game.config.width/2, this.sys.game.config.height/2, 'background');
+    this.bg.setOrigin(0.5, 0.5);
+    this.resizeBackground(this.bg);
+
+    this.inBackground1 = false;
+    this.midReached = false;
+    this.canShoot = true;
+    this.readyNextThrow = false;
+
+    // 🎯 스윙 이미지 다시 생성
+    const swingY = this.sys.game.config.height - 250;
+    if (this.swing) this.swing.destroy();
+    this.swing = this.add.image(this.sys.game.config.width/2, swingY, 'start_swing').setScale(3);
+
+    this.throwCount++;
+
+    // 프레임 끝 (2구 마치면)
+    if (this.throwCount > 2) {
+      this.throwCount = 1;
+      this.frameCount++;
+
+      if (this.frameCount > 9) {
+        this.add.text(this.sys.game.config.width/2 - 200, this.sys.game.config.height/2, 
+          `게임 종료! 총 점수: ${this.score}`, { fontSize: '48px', color: '#ff0000' });
+        this.canShoot = false;
+      }
+    }
+}
+
 
   resizeBackground(bg) {
     const scaleX = this.sys.game.config.width / bg.width;
@@ -211,10 +273,7 @@ const config = {
   type: Phaser.AUTO,
   width: window.innerWidth,
   height: window.innerHeight,
-  physics: {
-    default: 'arcade',
-    arcade: { debug: false }
-  },
+  physics: { default: 'arcade', arcade: { debug: false } },
   scene: [StartScene, GameScene]
 };
 
